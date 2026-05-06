@@ -1,10 +1,18 @@
 --- a/webview/index.html
 +++ b/webview/index.html
-@@ -616,6 +616,7 @@
+@@ -616,6 +616,15 @@
        href="./assets/codex-avatar-D82knaKt.css"
      />
      <link rel="stylesheet" crossorigin href="./assets/index-Demj-qjn.css" />
-+    <style>.main-surface { --spacing-token-safe-header-left: 0px; }</style>
++    <style>
++      .main-surface { --spacing-token-safe-header-left: 0px; }
++      @media (hover: none), (pointer: coarse), (max-width: 768px) {
++        [data-app-action-sidebar-project-row] > [class~="opacity-0"][class~="group-hover/folder-row:opacity-100"] {
++          display: flex !important;
++          opacity: 1 !important;
++        }
++      }
++    </style>
    </head>
    <body tabindex="0" style="outline: none">
      <div id="root">
