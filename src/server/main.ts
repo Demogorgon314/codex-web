@@ -12,8 +12,14 @@ import fastifyStatic from "@fastify/static";
 import { installModuleAliasHook } from "./module";
 
 type ServerOptions = {
+  basicAuth: BasicAuthCredentials | null;
   host: string;
   port: number;
+};
+
+type BasicAuthCredentials = {
+  password: string;
+  username: string;
 };
 
 type RendererToMainMessage =
@@ -115,7 +121,7 @@ function printUsage(): void {
   console.log(
     [
       "Usage:",
-      "  server [--host <host>] [--port <port>]",
+      "  server [--host <host>] [--port <port>] [--basic-auth <user:pass>]",
       "",
       "Defaults:",
       "  --host 127.0.0.1",
@@ -124,6 +130,7 @@ function printUsage(): void {
       "Examples:",
       "  yarn server",
       "  yarn server --port 9000",
+      "  yarn server --basic-auth user:pass",
     ].join("\n"),
   );
 }
@@ -136,11 +143,32 @@ function parsePort(raw: string): number {
   return parsed;
 }
 
+function parseBasicAuthCredentials(
+  raw: string | undefined,
+): BasicAuthCredentials | null {
+  if (raw == null || raw.length === 0) {
+    return null;
+  }
+
+  const separatorIndex = raw.indexOf(":");
+  if (separatorIndex <= 0 || separatorIndex === raw.length - 1) {
+    throw new Error("Invalid basic auth credentials. Expected user:pass.");
+  }
+
+  return {
+    username: raw.slice(0, separatorIndex),
+    password: raw.slice(separatorIndex + 1),
+  };
+}
+
 function parseServerArgs(args: string[]): ServerOptions {
   const parsed = parseCliArgs({
     args,
     allowPositionals: false,
     options: {
+      "basic-auth": {
+        type: "string",
+      },
       help: {
         short: "h",
         type: "boolean",
@@ -161,9 +189,71 @@ function parseServerArgs(args: string[]): ServerOptions {
   }
 
   return {
+    basicAuth: parseBasicAuthCredentials(
+      parsed.values["basic-auth"] ?? process.env.CODEX_WEB_BASIC_AUTH,
+    ),
     host: parsed.values.host ?? "127.0.0.1",
     port: parsed.values.port ? parsePort(parsed.values.port) : 8214,
   };
+}
+
+function parseBasicAuthHeader(
+  authorization: string | undefined,
+): BasicAuthCredentials | null {
+  if (!authorization?.startsWith("Basic ")) {
+    return null;
+  }
+
+  try {
+    const decoded = Buffer.from(authorization.slice(6), "base64").toString(
+      "utf8",
+    );
+    return parseBasicAuthCredentials(decoded);
+  } catch {
+    return null;
+  }
+}
+
+function isAuthorized(
+  authorization: string | undefined,
+  expected: BasicAuthCredentials | null,
+): boolean {
+  if (expected == null) {
+    return true;
+  }
+
+  const actual = parseBasicAuthHeader(authorization);
+  return (
+    actual?.username === expected.username && actual.password === expected.password
+  );
+}
+
+function rejectUnauthorizedResponse(reply: {
+  code(statusCode: number): {
+    header(name: string, value: string): {
+      send(payload?: unknown): unknown;
+    };
+  };
+}): unknown {
+  return reply
+    .code(401)
+    .header("WWW-Authenticate", 'Basic realm="Codex Web"')
+    .send("Unauthorized");
+}
+
+function rejectUnauthorizedUpgrade(
+  socket: NodeJS.ReadWriteStream & { destroy(): void },
+): void {
+  socket.write(
+    [
+      "HTTP/1.1 401 Unauthorized",
+      'WWW-Authenticate: Basic realm="Codex Web"',
+      "Connection: close",
+      "",
+      "",
+    ].join("\r\n"),
+  );
+  socket.destroy();
 }
 
 function getIpcMainBridgeState(): IpcMainBridgeState {
@@ -261,6 +351,14 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
     },
   });
 
+  app.addHook("onRequest", (request, reply, done) => {
+    if (!isAuthorized(request.headers.authorization, options.basicAuth)) {
+      rejectUnauthorizedResponse(reply);
+      return;
+    }
+    done();
+  });
+
   const uploadRoot = await fs.mkdtemp(
     path.join(os.tmpdir(), "codex-web-uploads-"),
   );
@@ -323,6 +421,11 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
     const url = new URL(requestUrl, `http://${host}`);
     if (url.pathname !== "/__backend/ipc") {
       socket.destroy();
+      return;
+    }
+
+    if (!isAuthorized(request.headers.authorization, options.basicAuth)) {
+      rejectUnauthorizedUpgrade(socket);
       return;
     }
 

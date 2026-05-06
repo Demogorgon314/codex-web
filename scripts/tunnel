@@ -1,0 +1,58 @@
+#!/usr/bin/env sh
+set -eu
+
+if ! command -v cloudflared >/dev/null 2>&1; then
+  echo "cloudflared is required. Install it with: brew install cloudflare/cloudflare/cloudflared" >&2
+  exit 1
+fi
+
+if [ -z "${CODEX_WEB_BASIC_AUTH:-}" ]; then
+  echo "CODEX_WEB_BASIC_AUTH is required, for example:" >&2
+  echo "  CODEX_WEB_BASIC_AUTH='user:pass' npm run tunnel" >&2
+  exit 1
+fi
+
+HOST="${CODEX_WEB_HOST:-127.0.0.1}"
+PORT="${CODEX_WEB_PORT:-8214}"
+URL="http://${HOST}:${PORT}"
+CLOUDFLARED_PROTOCOL="${CLOUDFLARED_PROTOCOL:-http2}"
+
+cleanup() {
+  if [ -n "${SERVER_PID:-}" ] && kill -0 "$SERVER_PID" >/dev/null 2>&1; then
+    kill "$SERVER_PID" >/dev/null 2>&1 || true
+    wait "$SERVER_PID" >/dev/null 2>&1 || true
+  fi
+}
+
+trap cleanup EXIT INT TERM
+
+npm run server -- --host "$HOST" --port "$PORT" &
+SERVER_PID="$!"
+
+printf "Waiting for Codex Web at %s" "$URL"
+until curl -fsS -u "$CODEX_WEB_BASIC_AUTH" "$URL" >/dev/null 2>&1; do
+  if ! kill -0 "$SERVER_PID" >/dev/null 2>&1; then
+    echo
+    echo "Codex Web server exited before it became ready." >&2
+    wait "$SERVER_PID"
+    exit 1
+  fi
+  printf "."
+  sleep 1
+done
+echo
+
+echo "Starting Cloudflare quick tunnel for $URL"
+cloudflared tunnel --protocol "$CLOUDFLARED_PROTOCOL" --url "$URL" 2>&1 | while IFS= read -r line; do
+  echo "$line"
+
+  TUNNEL_URL="$(printf "%s\n" "$line" | sed -n 's/.*\(https:\/\/[[:alnum:]-]*\.trycloudflare\.com\).*/\1/p')"
+  if [ -n "$TUNNEL_URL" ] && [ -z "${PRINTED_TUNNEL_QR:-}" ]; then
+    PRINTED_TUNNEL_QR=1
+    echo
+    echo "Scan to open Codex Web:"
+    node -e "require('qrcode-terminal').generate(process.argv[1], { small: true })" "$TUNNEL_URL"
+    echo "$TUNNEL_URL"
+    echo
+  fi
+done
