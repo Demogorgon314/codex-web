@@ -255,6 +255,16 @@ function shouldCloseSidebarForMemoryPath(path: string): boolean {
   );
 }
 
+function isMainSurfaceEvent(event: Event): boolean {
+  return event
+    .composedPath()
+    .some(
+      (target) =>
+        target instanceof HTMLElement &&
+        (target.matches("main") || target.classList.contains("main-surface")),
+    );
+}
+
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -301,6 +311,15 @@ if (initialRoute.browserPath) {
 }
 
 electronShim.initialSidebarState = initialSidebarState;
+document.addEventListener(
+  "pointerdown",
+  (event) => {
+    if (mobileMediaQuery.matches && isMainSurfaceEvent(event)) {
+      electronShim.closeSidebar?.();
+    }
+  },
+  { capture: true },
+);
 electronShim.onMemoryNavigationChanged = (navigation) => {
   const path = navigation.location.pathname;
   if (
