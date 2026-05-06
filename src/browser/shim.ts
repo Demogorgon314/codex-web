@@ -65,6 +65,8 @@ type MainToRendererMessage =
     };
 
 const RECONNECT_DELAY_MS = 1_000;
+const SETTINGS_SIDEBAR_STYLE_ID = "codex-web-settings-sidebar-style";
+const SETTINGS_SIDEBAR_TOGGLE_ID = "codex-web-settings-sidebar-toggle";
 
 type MemoryNavigationChange = {
   action: "POP" | "PUSH" | "REPLACE";
@@ -250,9 +252,15 @@ function shouldCloseSidebarForMemoryPath(path: string): boolean {
   return (
     path === "/" ||
     path.startsWith("/local/") ||
+    path === "/settings" ||
+    path.startsWith("/settings/") ||
     path === "/skills" ||
     path === "/automations"
   );
+}
+
+function isSettingsPath(path: string): boolean {
+  return path === "/settings" || path.startsWith("/settings/");
 }
 
 function isMainSurfaceEvent(event: Event): boolean {
@@ -298,6 +306,95 @@ function isInteractiveEvent(event: Event): boolean {
         );
       },
     );
+}
+
+function ensureSettingsSidebarControls(): void {
+  if (!document.getElementById(SETTINGS_SIDEBAR_STYLE_ID)) {
+    const style = document.createElement("style");
+    style.id = SETTINGS_SIDEBAR_STYLE_ID;
+    style.textContent = `
+@media (max-width: 768px) {
+  body[data-codex-settings-page="true"] .window-fx-sidebar-surface.w-token-sidebar {
+    background: var(--color-token-sidebar-surface-primary, var(--color-token-bg-primary, #fff)) !important;
+    position: fixed !important;
+    inset: 0 auto 0 0 !important;
+    z-index: 50 !important;
+    overflow-y: auto !important;
+    max-width: min(84vw, 340px) !important;
+    box-shadow: 0 0 0 1px var(--color-token-border, rgba(0, 0, 0, 0.08)), 18px 0 48px rgba(0, 0, 0, 0.12) !important;
+    transition: transform 160ms ease !important;
+  }
+
+  body[data-codex-settings-page="true"][data-codex-settings-sidebar-collapsed="true"] .window-fx-sidebar-surface.w-token-sidebar {
+    transform: translateX(-100%) !important;
+    pointer-events: none !important;
+  }
+
+  #${SETTINGS_SIDEBAR_TOGGLE_ID} {
+    align-items: center;
+    background: var(--color-token-bg-primary, #fff);
+    border: 1px solid var(--color-token-border, rgba(0, 0, 0, 0.12));
+    border-radius: 10px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.10);
+    color: var(--color-token-text-primary, #111);
+    cursor: pointer;
+    display: none;
+    height: 36px;
+    justify-content: center;
+    left: max(12px, env(safe-area-inset-left));
+    position: fixed;
+    top: max(12px, env(safe-area-inset-top));
+    width: 36px;
+    z-index: 60;
+  }
+
+  body[data-codex-settings-page="true"][data-codex-settings-sidebar-collapsed="true"] #${SETTINGS_SIDEBAR_TOGGLE_ID} {
+    display: flex;
+  }
+}
+`;
+    document.head.append(style);
+  }
+
+  if (!document.getElementById(SETTINGS_SIDEBAR_TOGGLE_ID)) {
+    const button = document.createElement("button");
+    button.id = SETTINGS_SIDEBAR_TOGGLE_ID;
+    button.type = "button";
+    button.title = "Show settings navigation";
+    button.setAttribute("aria-label", "Show settings navigation");
+    button.innerHTML = `<svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 5.75h12M4 10h12M4 14.25h12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>`;
+    button.addEventListener("pointerdown", (event) => {
+      event.stopPropagation();
+    });
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      document.body.dataset.codexSettingsSidebarCollapsed = "false";
+    });
+    document.body.append(button);
+  }
+}
+
+function updateSettingsSidebarState(path: string): void {
+  const isSettingsPage = isSettingsPath(path);
+  document.body.dataset.codexSettingsPage = String(isSettingsPage);
+  if (!isSettingsPage) {
+    delete document.body.dataset.codexSettingsSidebarCollapsed;
+    return;
+  }
+
+  ensureSettingsSidebarControls();
+  if (mobileMediaQuery.matches) {
+    document.body.dataset.codexSettingsSidebarCollapsed = "false";
+    return;
+  }
+  delete document.body.dataset.codexSettingsSidebarCollapsed;
+}
+
+function collapseSettingsSidebar(): void {
+  if (document.body.dataset.codexSettingsPage !== "true") {
+    return;
+  }
+  document.body.dataset.codexSettingsSidebarCollapsed = "true";
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -346,6 +443,10 @@ if (initialRoute.browserPath) {
 }
 
 electronShim.initialSidebarState = initialSidebarState;
+updateSettingsSidebarState(initialRoute.memoryPath);
+mobileMediaQuery.addEventListener("change", () => {
+  updateSettingsSidebarState(electronShim.initialRoute ?? "/");
+});
 document.addEventListener(
   "pointerdown",
   (event) => {
@@ -354,6 +455,10 @@ document.addEventListener(
       isMainSurfaceEvent(event) &&
       !isInteractiveEvent(event)
     ) {
+      if (document.body.dataset.codexSettingsPage === "true") {
+        collapseSettingsSidebar();
+        return;
+      }
       electronShim.closeSidebar?.();
     }
   },
@@ -361,6 +466,8 @@ document.addEventListener(
 );
 electronShim.onMemoryNavigationChanged = (navigation) => {
   const path = navigation.location.pathname;
+  electronShim.initialRoute = path;
+  updateSettingsSidebarState(path);
   if (
     navigation.action !== "POP" &&
     mobileMediaQuery.matches &&
