@@ -4,11 +4,10 @@
   "files": [
     "README.md",
     "scratch/asar/**/*",
-    "src/server/**/*.js",
-    "src/server/electron/index.js",
+    "dist/server/**/*.js",
     "!**/*.ts"
   ],
-  "bin": "src/server/main.js",
+  "bin": "dist/server/main.js",
   "scripts": {
     "prepare": "./scripts/prepare && npm run build:browser && npm run build:server",
     "build": "npm run prepare:asar && npm run build:browser && npm run build:server",
@@ -19,7 +18,7 @@
     "build:server": "cd src/server && tsc",
     "prepare:asar": "./scripts/prepare_asar",
     "preserver": "npm run build:server && npm run build:browser",
-    "server": "CODEX_CLI_PATH=$(which codex) node src/server/main.js",
+    "server": "CODEX_CLI_PATH=$(which codex) node dist/server/main.js",
     "tunnel": "./scripts/tunnel"
   },
   "repository": "git@github.com:0xcaff/codex-web.git",
