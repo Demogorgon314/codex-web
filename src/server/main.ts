@@ -228,6 +228,24 @@ function isAuthorized(
   );
 }
 
+function isPublicIconRequest(request: {
+  method: string;
+  url: string;
+}): boolean {
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    return false;
+  }
+
+  const pathname = new URL(request.url, "http://codex-web.local").pathname;
+  return (
+    pathname === "/favicon.svg" ||
+    pathname === "/manifest.json" ||
+    pathname === "/service-worker.js" ||
+    pathname === "/assets/pwa-icon-192.png" ||
+    pathname === "/assets/pwa-icon-512.png"
+  );
+}
+
 function rejectUnauthorizedResponse(reply: {
   code(statusCode: number): {
     header(name: string, value: string): {
@@ -352,7 +370,10 @@ async function startIpcBridgeServer(options: ServerOptions): Promise<void> {
   });
 
   app.addHook("onRequest", (request, reply, done) => {
-    if (!isAuthorized(request.headers.authorization, options.basicAuth)) {
+    if (
+      !isPublicIconRequest(request) &&
+      !isAuthorized(request.headers.authorization, options.basicAuth)
+    ) {
       rejectUnauthorizedResponse(reply);
       return;
     }

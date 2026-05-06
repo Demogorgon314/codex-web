@@ -397,6 +397,18 @@ function collapseSettingsSidebar(): void {
   document.body.dataset.codexSettingsSidebarCollapsed = "true";
 }
 
+function registerServiceWorker(): void {
+  if (!("serviceWorker" in navigator)) {
+    return;
+  }
+
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/service-worker.js").catch((error) => {
+      console.warn("[pwa] failed to register service worker", error);
+    });
+  });
+}
+
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -443,6 +455,7 @@ if (initialRoute.browserPath) {
 }
 
 electronShim.initialSidebarState = initialSidebarState;
+registerServiceWorker();
 updateSettingsSidebarState(initialRoute.memoryPath);
 mobileMediaQuery.addEventListener("change", () => {
   updateSettingsSidebarState(electronShim.initialRoute ?? "/");
