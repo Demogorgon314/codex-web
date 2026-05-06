@@ -261,7 +261,42 @@ function isMainSurfaceEvent(event: Event): boolean {
     .some(
       (target) =>
         target instanceof HTMLElement &&
-        (target.matches("main") || target.classList.contains("main-surface")),
+        (target.matches("#root > div > div > main") ||
+          target.classList.contains("main-surface")),
+    );
+}
+
+function isInteractiveEvent(event: Event): boolean {
+  return event
+    .composedPath()
+    .some(
+      (target) => {
+        if (
+          !(target instanceof HTMLElement) ||
+          target === document.body ||
+          target === document.documentElement
+        ) {
+          return false;
+        }
+
+        return target.matches(
+          [
+            "a[href]",
+            "button",
+            "input",
+            "select",
+            "textarea",
+            "[contenteditable='true']",
+            "[role='button']",
+            "[role='checkbox']",
+            "[role='link']",
+            "[role='menuitem']",
+            "[role='option']",
+            "[role='radio']",
+            "[role='switch']",
+          ].join(","),
+        );
+      },
     );
 }
 
@@ -314,7 +349,11 @@ electronShim.initialSidebarState = initialSidebarState;
 document.addEventListener(
   "pointerdown",
   (event) => {
-    if (mobileMediaQuery.matches && isMainSurfaceEvent(event)) {
+    if (
+      mobileMediaQuery.matches &&
+      isMainSurfaceEvent(event) &&
+      !isInteractiveEvent(event)
+    ) {
       electronShim.closeSidebar?.();
     }
   },
