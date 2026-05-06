@@ -16,6 +16,8 @@ HOST="${CODEX_WEB_HOST:-127.0.0.1}"
 PORT="${CODEX_WEB_PORT:-8214}"
 URL="http://${HOST}:${PORT}"
 CLOUDFLARED_PROTOCOL="${CLOUDFLARED_PROTOCOL:-http2}"
+TUNNEL_NAME="${CODEX_WEB_TUNNEL_NAME:-}"
+PUBLIC_URL="${CODEX_WEB_PUBLIC_URL:-}"
 
 cleanup() {
   if [ -n "${SERVER_PID:-}" ] && kill -0 "$SERVER_PID" >/dev/null 2>&1; then
@@ -25,6 +27,22 @@ cleanup() {
 }
 
 trap cleanup EXIT INT TERM
+
+if [ -n "$TUNNEL_NAME" ] && [ -z "$PUBLIC_URL" ]; then
+  echo "CODEX_WEB_PUBLIC_URL is required when CODEX_WEB_TUNNEL_NAME is set." >&2
+  echo "Example:" >&2
+  echo "  CODEX_WEB_TUNNEL_NAME='codex-web' CODEX_WEB_PUBLIC_URL='https://codex.example.com' CODEX_WEB_BASIC_AUTH='user:pass' npm run tunnel" >&2
+  exit 1
+fi
+
+print_qr() {
+  qr_url="$1"
+  echo
+  echo "Scan to open Codex Web:"
+  node -e "require('qrcode-terminal').generate(process.argv[1], { small: true })" "$qr_url"
+  echo "$qr_url"
+  echo
+}
 
 npm run server -- --host "$HOST" --port "$PORT" &
 SERVER_PID="$!"
@@ -42,6 +60,13 @@ until curl -fsS -u "$CODEX_WEB_BASIC_AUTH" "$URL" >/dev/null 2>&1; do
 done
 echo
 
+if [ -n "$TUNNEL_NAME" ]; then
+  print_qr "$PUBLIC_URL"
+  echo "Starting Cloudflare named tunnel '$TUNNEL_NAME' for $URL"
+  cloudflared tunnel run "$TUNNEL_NAME"
+  exit $?
+fi
+
 echo "Starting Cloudflare quick tunnel for $URL"
 cloudflared tunnel --protocol "$CLOUDFLARED_PROTOCOL" --url "$URL" 2>&1 | while IFS= read -r line; do
   echo "$line"
@@ -49,10 +74,6 @@ cloudflared tunnel --protocol "$CLOUDFLARED_PROTOCOL" --url "$URL" 2>&1 | while 
   TUNNEL_URL="$(printf "%s\n" "$line" | sed -n 's/.*\(https:\/\/[[:alnum:]-]*\.trycloudflare\.com\).*/\1/p')"
   if [ -n "$TUNNEL_URL" ] && [ -z "${PRINTED_TUNNEL_QR:-}" ]; then
     PRINTED_TUNNEL_QR=1
-    echo
-    echo "Scan to open Codex Web:"
-    node -e "require('qrcode-terminal').generate(process.argv[1], { small: true })" "$TUNNEL_URL"
-    echo "$TUNNEL_URL"
-    echo
+    print_qr "$TUNNEL_URL"
   fi
 done

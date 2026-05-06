@@ -40,6 +40,62 @@ nix run github:0xcaff/codex-web
 
 then open <http://127.0.0.1:8214> in a browser.
 
+### cloudflare tunnel
+
+for temporary mobile access over https, run a quick cloudflare tunnel:
+
+```bash
+CODEX_WEB_BASIC_AUTH='username:strong-password' npm run tunnel
+```
+
+`CODEX_WEB_BASIC_AUTH` must be a single `username:password` value. choose a real
+password, keep the value out of shell history if possible, and never commit it
+to the repository. the tunnel script requires this variable so the public URL is
+not exposed without basic auth.
+
+the script starts `codex-web` on `127.0.0.1:8214`, starts `cloudflared`, then
+prints the public URL and a QR code for opening it on a phone. use
+`CODEX_WEB_PORT` to change the local port:
+
+```bash
+CODEX_WEB_BASIC_AUTH='username:strong-password' CODEX_WEB_PORT=8321 npm run tunnel
+```
+
+quick tunnel URLs are temporary and change on every run. for a fixed URL, create
+a named cloudflare tunnel and route your hostname to it:
+
+```bash
+cloudflared tunnel login
+cloudflared tunnel create codex-web
+cloudflared tunnel route dns codex-web codex.example.com
+```
+
+then create `~/.cloudflared/config.yml`:
+
+```yaml
+tunnel: codex-web
+credentials-file: /Users/you/.cloudflared/<tunnel-id>.json
+
+ingress:
+  - hostname: codex.example.com
+    service: http://127.0.0.1:8321
+  - service: http_status:404
+```
+
+start the fixed-url tunnel with:
+
+```bash
+CODEX_WEB_BASIC_AUTH='username:strong-password' \
+CODEX_WEB_PORT=8321 \
+CODEX_WEB_TUNNEL_NAME='codex-web' \
+CODEX_WEB_PUBLIC_URL='https://codex.example.com' \
+npm run tunnel
+```
+
+in named tunnel mode, `CODEX_WEB_PUBLIC_URL` is used for the QR code and
+`cloudflared tunnel run <name>` uses the cloudflared config for the actual
+routing.
+
 ### sign in
 
 ensure the codex cli on the host machine is signed in before starting the
@@ -80,9 +136,17 @@ run `codex-web` only on trusted networks. treat anyone who can reach the
 `codex-web` server as someone who can operate codex on the host machine as the
 same user running the server.
 
-if you need authn or authz, implement it outside of `codex-web`: proxy it through
-wireguard, tailscale, or an ssh tunnel and put an authentication gateway or
-reverse proxy in front.
+when exposing `codex-web` outside localhost, use authentication. the built-in
+basic auth is intended as a minimal guard for personal tunnel usage:
+
+```bash
+CODEX_WEB_BASIC_AUTH='username:strong-password' npm run server
+```
+
+basic auth protects the page, uploads, and websocket bridge. for longer-lived
+public deployments, prefer an additional access layer such as cloudflare access,
+tailscale, wireguard, an ssh tunnel, or a reverse proxy with stronger identity
+controls.
 
 someone with access to the web ui may be able to:
 
